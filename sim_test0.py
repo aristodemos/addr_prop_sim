@@ -109,6 +109,7 @@ class Peer:
 class GoodPeer(Peer):
     def __init__(self, id, env, arrival_rate, departure_rate, message_rate, num_peers):
         self.id = id
+        self.env = env
         self.arrival_rate = arrival_rate # How long until coming back online after being offline
         self.departure_rate = departure_rate # How long to stay online
         self.message_rate = message_rate # How often to send an addr message
@@ -131,15 +132,15 @@ class GoodPeer(Peer):
         # Start the peer's message process
         self.online = True
         self.seedGETADDR()
-        self.periodic_addr_generation = env.process(self.addr_gen())
-        self.periodic_truncate_of_addr_map = env.process(self.truncate_addrmap())
-        self.departure_process = env.process(self.departure())
+        self.periodic_addr_generation = self.env.process(self.addr_gen())
+        self.periodic_truncate_of_addr_map = self.env.process(self.truncate_addrmap())
+        self.departure_process = self.env.process(self.departure())
         # periodically check number of connections and add if less than self.num_peers (every 30 minutes)
-        self.update_connections = env.process(self.update_conns())
+        self.update_connections = self.env.process(self.update_conns())
 
     def update_conns(self):
         while True:
-            yield env.timeout(30 * ONE_MINUTE)
+            yield self.env.timeout(30 * ONE_MINUTE)
             if not self.online:
                 continue
             connections_diff = self.num_peers - self.get_outboundN()
@@ -167,13 +168,13 @@ class GoodPeer(Peer):
         logging.warning(f"{int(G.size()/10)} // {MAX_ADDR_SEND}")
         seed_reply = random.sample(list(G.nodes(data=False)), min(int(G.size()/10), MAX_ADDR_SEND))
         for sr in seed_reply:
-            self.known_peers[sr] = env.now
+            self.known_peers[sr] = self.env.now
         logging.debug(f"Peer_{self.id} known_peers {(self.known_peers)}")
 
 
     def truncate_addrmap(self):
         while True and len(self.addr_map) > 0:
-            yield env.timeout(random.expovariate(ONE_HOUR))
+            yield self.env.timeout(random.expovariate(ONE_HOUR))
             self.addr_map = {}
 
     def get_outbound(self):
@@ -196,7 +197,7 @@ class GoodPeer(Peer):
         #NET_PEERS[self.id]['known_peers'] += addrlist
         #NET_PEERS[self.id]['known_peers'] = [*set(NET_PEERS[self.id]['known_peers'])]  # Remove Duplicates
         for kp in addrlist:
-            self.known_peers[kp] = env.now
+            self.known_peers[kp] = self.env.now
 
         self.update_addrmap(sender_id, addrlist)
 
@@ -211,7 +212,7 @@ class GoodPeer(Peer):
         # periodically send an addr message including 10 known peers to the connected peers, according to message rate
         while True:
             try:
-                yield env.timeout(random.expovariate(1 / self.message_rate))
+                yield self.env.timeout(random.expovariate(1 / self.message_rate))
                 if self.online:
                     # select 10 addresses:
                     #peers_list = random.sample(NET_PEERS[self.id]['known_peers'], min(10, len(NET_PEERS[self.id]['known_peers'])))
@@ -222,10 +223,10 @@ class GoodPeer(Peer):
                     choose_fwd_peers = random.sample(self.get_connected(), min(2, len(self.get_connected())))
                     if len(peers_list) > 0:
                         for connected_peer_id in choose_fwd_peers:
-                            logging.debug(f"Peer_{self.id} sending to {connected_peer_id} ADDR msg with peers {peers_list} at {env.now}")
+                            logging.debug(f"Peer_{self.id} sending to {connected_peer_id} ADDR msg with peers {peers_list} at {self.env.now}")
                             connected_peer = ALL_PEERS[connected_peer_id]
                             # TODO: callback
-                            event = simpy.events.Timeout(env, delay=1/random.expovariate(2), value=connected_peer.receive_addr(self.id, peers_list.copy()))
+                            event = simpy.events.Timeout(self.env, delay=1/random.expovariate(2), value=connected_peer.receive_addr(self.id, peers_list.copy()))
                             value = yield event
                             # BEFORE was:
                             # connected_peer.receive_addr(self.id, peers_list.copy())
@@ -242,10 +243,10 @@ class GoodPeer(Peer):
 
     def receive_message2(self, sender_id):
         # Peer receives a message from the chosen peer
-        logging.debug(f"{self.type} Peer {self.id} received a message from Peer {sender_id} at time {env.now}")
+        logging.debug(f"{self.type} Peer {self.id} received a message from Peer {sender_id} at time {self.env.now}")
 
     def receive_addr(self, sender_id, addrlist):
-        logging.debug(f"XXX_Peer {self.id} received a addr from Peer {sender_id} with list{addrlist} at time {env.now}")
+        logging.debug(f"XXX_Peer {self.id} received a addr from Peer {sender_id} with list{addrlist} at time {self.env.now}")
 
         # update known peers and addr_map:
         self.update_known_addresses(sender_id, addrlist)
@@ -287,7 +288,7 @@ class GoodPeer(Peer):
     def departure(self):
         while True:
             # Wait for a departure event to occur
-            yield env.timeout(random.expovariate(1.0 / self.departure_rate))
+            yield self.env.timeout(random.expovariate(1.0 / self.departure_rate))
 
             if self.online == False:
                 continue
@@ -295,7 +296,7 @@ class GoodPeer(Peer):
                 # Peer leaves the network
                 self.online = False
                 self.addr_map = {}
-                logging.debug(f"{self.type} Peer_{self.id} left the network at time {env.now}")
+                logging.debug(f"{self.type} Peer_{self.id} left the network at time {self.env.now}")
 
                 # Disconnect from all connected peers but in two steps: successors and predecessors in different steps
                 # fisrt remove  and then
@@ -319,7 +320,7 @@ class GoodPeer(Peer):
                 #self.periodic_addr_generation.interrupt()
 
                 # Start the arrival process
-                self.arrival_process = env.process(self.arrival())
+                self.arrival_process = self.env.process(self.arrival())
 
     def disconnect_from_peer(self, peer_id, outbound=False):
         # Peer with id peer_id left the Network.
@@ -336,10 +337,10 @@ class GoodPeer(Peer):
                     peer = ALL_PEERS[selected_id]
                     if peer.online:
                         G.add_edge(self.id, selected_id)
-                        logging.debug(f"Peer_{peer_id} disconnected from Peer {self.id}._______YXY_______ {self.id} created new connection to {selected_id} at time {env.now}")
+                        logging.debug(f"Peer_{peer_id} disconnected from Peer {self.id}._______YXY_______ {self.id} created new connection to {selected_id} at time {self.env.now}")
                         #TODO: inform peer that we are now connected.
 
-        logging.debug(f"Peer {peer_id} disconnected from Peer {self.id} at time {env.now}")
+        logging.debug(f"Peer {peer_id} disconnected from Peer {self.id} at time {self.env.now}")
 
 
     def connect_to_peer(self, peer_id):
@@ -349,7 +350,7 @@ class GoodPeer(Peer):
     def arrival(self):
         while self.arrival_rate>0:
             # Wait for an arrival event to occur
-            yield env.timeout(random.expovariate(1.0 / self.arrival_rate))
+            yield self.env.timeout(random.expovariate(1.0 / self.arrival_rate))
 
             #assert self.online == False
 
@@ -358,7 +359,7 @@ class GoodPeer(Peer):
                 # Peer joins the network
                 self.online = True
                 self.net_connect_retries = 0
-                logging.debug(f"Peer_{self.id} joined the network at time {env.now}")
+                logging.debug(f"Peer_{self.id} joined the network at time {self.env.now}")
                 G.add_node(self.id)
 
                 if len(self.known_peers) < 10:
@@ -369,12 +370,12 @@ class GoodPeer(Peer):
 
                 # Start the peer's departure process
                 if self.departure_rate > 0:
-                    self.departure_process = env.process(self.departure())
+                    self.departure_process = self.env.process(self.departure())
 
                 # Start the peer's message sending process
                 # if self.message_rate > 0:
                 #     logging.warning(f"self.periodic_addr_generation-->{self.periodic_addr_generation.ok}")
-                #     self.periodic_addr_generation = env.process(self.addr_gen())
+                #     self.periodic_addr_generation = self.env.process(self.addr_gen())
                 #     logging.warning(f"self.periodic_addr_generation-->{self.periodic_addr_generation.is_alive}")
                 #
                 # # Stop the arrival process, already here
@@ -393,7 +394,7 @@ class GoodPeer(Peer):
             for node_id in nodes_from_dns_seed:
                 if node_id == self.id:
                     continue
-                self.known_peers[node_id] = env.now
+                self.known_peers[node_id] = self.env.now
                 available_peers.append(node_id)
 
         random.shuffle(available_peers)
@@ -416,11 +417,11 @@ class GoodPeer(Peer):
         """
         # Start the peer's departure process
         if self.departure_rate > 0:
-            self.departure_process = env.process(self.departure())
+            self.departure_process = self.env.process(self.departure())
 
         # Start the peer's message sending process
         if self.message_rate > 0:
-            self.message_process = env.process(self.send_message())
+            self.message_process = self.env.process(self.send_message())
         """
 
     # Unused methods:
@@ -434,6 +435,8 @@ class BadPeer(Peer):
     In a more hostile setting instead of relayin addr messages they may send fake addresses,
     or  addresses controlled by an attacker.
     They may relay blocks and transactions.
+
+    A Very bad peer will try to connect to all reachable peers.
     """
     type = 'BAD'
 
@@ -447,7 +450,7 @@ class BadPeer(Peer):
 # p1.startPeer()
 # p2.startPeer()
 
-NETWORK_SIZE = 6000
+NETWORK_SIZE = 1000
 # create network. according to different strategies [random (ER), scale-free (BA), realMG (from Grundmann)
 deg_seq = getDegreeDistribution('ba-model', NETWORK_SIZE)
 
