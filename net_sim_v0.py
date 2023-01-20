@@ -517,6 +517,9 @@ def get_stats(env):
     logging.info(f"Graph density: {nx.density(G)}")
     logging.info(f"SUB-Graph density: {nx.density(nx.subgraph(G, nbunch))}")
     logging.info(f"SUB-Graph connectvity: {nx.node_connectivity(nx.subgraph(G, nbunch))}")
+    # TODO: decide useful/meaningful metrics to report;
+    #  \ie connectivit, connected components, etc
+
 
     # logging.info(f"Graph diameter: {nx.algorithms.approximation.diameter(G)}")
 
