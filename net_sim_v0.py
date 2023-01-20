@@ -113,9 +113,14 @@ class GoodPeer(Peer):
         self.num_peers = num_peers
         self.known_peers = {}  # ADDRMAN: dict of known nodes. {peer_id: timestamp} // aged nodes are removed unless connected.
         # TODO: Implement node age-removal
-        self.max_node_age = 6 * ONE_HOUR  # chosen arbitrarilly TODO: confirm from bitcoin core
+        self.max_node_age = 7 * ONE_DAY  # according to https://github.com/bitcoin/bitcoin/blob/250598a905a7be74d4064495c22e2423e371fe8a/src/addrman.cpp#L32
         self.in_pipe = in_pipe
         self.out_pipe = out_pipe
+        # TODO: Model Churn realistically:
+        #  Use references:
+        #       a) https://people.bu.edu/staro/Churn_extended_final.pdf
+        #       b) https://www.semanticscholar.org/paper/Impact-of-Node-Churn-in-the-Bitcoin-Network-Motlagh-Misic/c8ff080560bcc66f753bb941dd4a52f536b3a844
+
 
     def getPeerInfo(self):
         return f"{self.type}_Peer_{self.id}/{self.online}"
