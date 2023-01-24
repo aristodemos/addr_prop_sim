@@ -6,7 +6,7 @@ import simpy
 import random
 import networkx as nx
 import logging
-logging.basicConfig(level=logging.INFO, filename="mylog-5day.log")
+logging.basicConfig(level=logging.INFO, filename="mylog.log")
 #logging.basicConfig(level=logging.DEBUG, filename="mylog.log", format='[%(lineno)d] %(message)s')
 #logging.basicConfig(level=logging.DEBUG)
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
@@ -24,7 +24,7 @@ MESSAGE_TYPES = ['ADDR', 'GETADDR']
 global G
 G = nx.DiGraph()
 
-NETWORK_SIZE = 1000
+NETWORK_SIZE = 6000
 # create network. according to different strategies [random (ER), scale-free (BA), realMG (from Grundmann)
 def getDegreeDistribution(strategy, n, deg_seq_list=None):
     # n = NETWORK_SIZE
@@ -120,6 +120,7 @@ class GoodPeer(Peer):
         #  Use references:
         #       a) https://people.bu.edu/staro/Churn_extended_final.pdf
         #       b) https://www.semanticscholar.org/paper/Impact-of-Node-Churn-in-the-Bitcoin-Network-Motlagh-Misic/c8ff080560bcc66f753bb941dd4a52f536b3a844
+        # TODO: user churntrace from Neudecker
 
 
     def getPeerInfo(self):
@@ -128,17 +129,23 @@ class GoodPeer(Peer):
     def __repr__(self):
         return f"{self.id}"
 
-    def startPeer(self):
-        # Start the peer's message process
+    def delay_start(self):
+        yield self.env.timeout(random.randint(0,  ONE_HOUR))
+        logging.debug(f'Peer-{self} starting at time:{env.now}')
         self.online = True
         self.seedGETADDR()
         self.periodic_addr_generation = self.env.process(self.addr_gen())
         self.periodic_truncate_of_addr_map = self.env.process(self.truncate_addrmap())
-        #self.departure_process = self.env.process(self.departure())  # Replaced with toggleOnlineState
+        # self.departure_process = self.env.process(self.departure())  # Replaced with toggleOnlineState
         # periodically check number of connections and add if less than self.num_peers (every 30 minutes)
-        # self.update_connections = self.env.process(self.update_conns())
+        self.update_connections = self.env.process(self.update_conns_periodically())
         self.consume_messages = self.env.process(self.consume_message())
         self.toggleOnline = self.env.process(self.toggleOnlineState())
+
+
+    def startPeer(self):
+        # Start the peer's message process
+        self.env.process(self.delay_start())
         # TODO: implement MAX_INBOUND / MAX_OUTBOUND according to initial values.
         self.MAX_INBOUND = self.get_inboundN()
         self.MAX_OUTBOUND = self.get_outboundN()
@@ -146,17 +153,22 @@ class GoodPeer(Peer):
 
     def consume_message(self):
         while True:
-            msg = yield self.in_pipe.get(lambda msg_r: msg_r[0] == self.id)
-            # process message now
-            logging.debug(f"{self} received msg from peer_{msg[1]}: {msg[2]}. Rx-Tx{self.env.now - msg[4]}")
-            if msg[2] == 'ADDR':
-                self.receive_addr(msg[1], msg[3])
+            try:
+                msg = yield self.in_pipe.get(lambda msg_r: msg_r[0] == self.id)
+                # process message now
+                logging.debug(f"{self} received msg from peer_{msg[1]}: {msg[2]}. Rx-Tx{self.env.now - msg[4]}")
+                if msg[2] == 'ADDR':
+                    self.receive_addr(msg[1], msg[3])
+            except:
+                break
 
     def send_msg(self, dest_peer, msg_type, msg_payload):
         msg = (dest_peer, self.id, msg_type, msg_payload, self.env.now)
         self.out_pipe.put(msg)
 
-    # TODO: use Neudeckers trace file.
+    def setOnlineState(self, online_state):
+        pass
+
     def toggleOnlineState(self):
         while True:
             if self.online: # Put a timer to go offline
@@ -169,25 +181,28 @@ class GoodPeer(Peer):
 
     def update_conns_periodically(self):
         while True:
-            yield self.env.timeout(30 * ONE_MINUTE)
-            if not self.online:
-                continue
-            connections_diff = self.MAX_OUTBOUND - self.get_outboundN()
-            conns_count = 0
-            if connections_diff > 0:
-                # try to establish so many connections:
-                available_peers = list(set(self.known_peers.keys()) - set(self.get_connected()))
-                random.shuffle(available_peers)
-                if available_peers is not None:
-                    for peer_id in available_peers:
-                        peer = ALL_PEERS[peer_id]
-                        if peer.online:
-                            if peer.get_inboundN() < peer.MAX_INBOUND:
-                                G.add_edge(self.id, peer_id)
-                                conns_count += 1
-                        if conns_count > connections_diff:
-                            break
-            logging.debug(logging.debug(f"Peer_{self.id} UPDATED CONNECTIONS TO {self.get_connected()}||MAX_OUTBOUND:{self.MAX_OUTBOUND}||MAX_INBOUND:{self.MAX_INBOUND}"))
+            try:
+                yield self.env.timeout(30 * ONE_MINUTE)
+                if not self.online:
+                    continue
+                connections_diff = self.MAX_OUTBOUND - self.get_outboundN()
+                conns_count = 0
+                if connections_diff > 0:
+                    # try to establish so many connections:
+                    available_peers = list(set(self.known_peers.keys()) - set(self.get_connected()))
+                    random.shuffle(available_peers)
+                    if available_peers is not None:
+                        for peer_id in available_peers:
+                            peer = ALL_PEERS[peer_id]
+                            if peer.online:
+                                if peer.get_inboundN() < peer.MAX_INBOUND:
+                                    G.add_edge(self.id, peer_id)
+                                    conns_count += 1
+                            if conns_count > connections_diff:
+                                break
+                logging.debug(logging.debug(f"Peer_{self.id} UPDATED CONNECTIONS TO {self.get_connected()}||MAX_OUTBOUND:{self.MAX_OUTBOUND}||MAX_INBOUND:{self.MAX_INBOUND}"))
+            except:
+                break
 
     def update_conns(self):
         if not self.online:
@@ -356,6 +371,27 @@ class GoodPeer(Peer):
         G.remove_edges_from(ebunch)
         G.remove_node(self.id)
 
+        if self.update_connections.is_alive:
+            self.update_connections.interrupt()
+            del self.update_connections
+
+        if self.consume_messages.is_alive:
+            self.consume_messages.interrupt()
+            del self.consume_messages
+
+        if self.periodic_addr_generation.is_alive:
+            self.periodic_addr_generation.interrupt()
+            del self.periodic_addr_generation
+
+        if self.periodic_truncate_of_addr_map.is_alive:
+            self.periodic_truncate_of_addr_map.interrupt()
+            del self.periodic_truncate_of_addr_map
+
+
+
+
+
+
     def disconnect_from_peer(self, peer_id, outbound=False):
         # Peer with id peer_id left the Network.
         # Disconnect from the specified peer
@@ -383,6 +419,13 @@ class GoodPeer(Peer):
     def arrival(self):
         self.online = True
         self.net_connect_retries = 0
+
+        self.periodic_addr_generation = self.env.process(self.addr_gen())
+        self.periodic_truncate_of_addr_map = self.env.process(self.truncate_addrmap())
+        self.update_connections = self.env.process(self.update_conns_periodically())
+        self.consume_messages = self.env.process(self.consume_message())
+
+
         logging.debug(f"Peer_{self.id} joined the network at time {self.env.now}")
         G.add_node(self.id)
 
@@ -391,6 +434,7 @@ class GoodPeer(Peer):
             self.seedGETADDR()
 
         self.connectToNetwork()
+
 
     def connectToNetwork(self):
         # logging.debug(f"Peer_{self.id}: TRYIN TO RECONNECT. current peers are {self.get_connected()}. NUM PEERS:{self.num_peers}")
@@ -457,6 +501,15 @@ class BadPeer(GoodPeer):
     def disconnect_from_peer(self, peer_id, outbound=False):
         pass
 
+def event_function(event_type, node_id, timestamp):
+    yield env.timeout(timestamp)
+    peer = ALL_PEERS[node_id]
+    peer.setOnlineState(event_type)
+
+def modelChurn(env):
+    # read from Neudeckers dictionary
+    _event = env.process(event_function())
+
 
 
 deg_seq = getDegreeDistribution('ba-model', NETWORK_SIZE)
@@ -516,15 +569,11 @@ def get_stats(env):
     logging.info(f"Number of Edges: {G.number_of_edges()}")
     logging.info(f"Graph density: {nx.density(G)}")
     logging.info(f"SUB-Graph density: {nx.density(nx.subgraph(G, nbunch))}")
-    logging.info(f"SUB-Graph connectvity: {nx.node_connectivity(nx.subgraph(G, nbunch))}")
+    # logging.info(f"SUB-Graph connectvity: {nx.node_connectivity(G=nx.subgraph(G, nbunch))}") # --> This will be frequently equal to zero because not all nodes are always online.
     # TODO: decide useful/meaningful metrics to report;
-    #  \ie connectivit, connected components, etc
-
-
-    # logging.info(f"Graph diameter: {nx.algorithms.approximation.diameter(G)}")
-
+    #  \ie connectivity, connected components, etc
+    logging.info(f"SUB-Graph diameter: {nx.algorithms.approximation.diameter(nx.subgraph(G, nbunch).to_undirected(as_view=True))}")
     logging.info(f"Degree Histogram: {nx.degree_histogram(G)}")
-
     # logging.info(f"Node Connectivity (approx.): {approx.node_connectivity(G)}")
     # logging.info(f"Avg Clustering (approx.): {approx.average_clustering(G, trials=1000, seed=10)}")
     # for n in ALL_PEERS:
