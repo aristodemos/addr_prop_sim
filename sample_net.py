@@ -37,3 +37,37 @@ ax1.set_xscale('log')
 
 fig.tight_layout()
 plt.show()
+
+"""
+pos = nx.spring_layout(g, seed=10396953)
+nx.draw_networkx_nodes(g, pos, node_size=20)
+nx.draw_networkx_edges(g, pos, alpha=1)
+
+fedges = filter(lambda x: g.degree()[x[0]] > 0 and g.degree()[x[1]] > 0, g.edges())
+f = nx.Graph() 
+f.add_edges_from(fedges)
+
+pos = nx.spring_layout(f, seed=10396953)
+nx.draw_networkx_nodes(f, pos, node_size=20)
+nx.draw_networkx_edges(f, pos, alpha=0.4)
+
+
+g = nx.expected_degree_graph(a, selfloops = False)
+fedges = filter(lambda x: g.degree()[x[0]] > 0 and g.degree()[x[1]] > 0, g.edges())
+f = nx.Graph() 
+f.add_edges_from(fedges)
+del g
+g = f.to_directed()
+
+---biedges = {(u, v) for u, v in g.edges}
+---biedges = {(u, v) for u, v in f.edges}
+---hide = {(u, v) for u, v in {(u, v) for u, v in g.edges}}
+---hide = {(u, v) for v, u in {(u, v) for u, v in f.edges}}
+biedges2 = {(u, v) for u, v in {(u, v) for u, v in g.edges}}
+biedges = {(u, v) for v,u in {(u, v) for u, v in f.edges}}
+hide = biedges2 - biedges
+g.remove_edges_from(hide)
+
+
+
+"""

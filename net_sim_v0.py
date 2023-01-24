@@ -1,6 +1,7 @@
 # import sys
 # sys.setrecursionlimit(5000)
 import sys
+import pickle
 import time
 import simpy
 import random
@@ -26,6 +27,13 @@ G = nx.DiGraph()
 
 NETWORK_SIZE = 6000
 # create network. according to different strategies [random (ER), scale-free (BA), realMG (from Grundmann)
+
+with open('churntrace.pickle', 'rb') as h:
+    churn_trace = pickle.load(h)
+
+# initialize network according to trace file.
+
+
 def getDegreeDistribution(strategy, n, deg_seq_list=None):
     # n = NETWORK_SIZE
     if strategy == 'ba-model':
