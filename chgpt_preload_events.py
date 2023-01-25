@@ -1,38 +1,31 @@
 import simpy
 
+def preload_events(env, events_dict):
+    for node_id, timestamps in events_dict.items():
+        for timestamp in timestamps:
+            env.process(event_function(node_id, timestamp))
 
-def event_1_function():
-    yield env.timeout(10)
-    # Event logic
-    print(f"event_1_function()@{env.now}")
-
-def event_2_function():
-    yield env.timeout(15)
-    # Event logic
-    print(f"event_2_function()@{env.now}")
-
-def event_3_function():
-    yield env.timeout(1)
-    # Event logic
-    print(f"event_3_function()@{env.now}")
-
+def event_function(node_id, timestamp):
+    yield env.timeout(timestamp)
+    print(f"Event occurred at node {node_id} at time {env.now}")
 
 # Define the simulation environment
 env = simpy.Environment()
 
-# Schedule an event to occur at time 10
-event_1 = env.process(event_1_function())
-#env.run(until=10)
+# Define the dictionary of timestamps
+events_dict = {
+    1: [5, 10, 15],
+    2: [3, 7, 12],
+    3: [1, 6, 11],
+}
 
-# Schedule an event to occur at time 20
-event_2 = env.process(event_2_function())
-#env.run(until=20)
+# Pre-load the events
+preload_events(env, events_dict)
 
-# Schedule an event to occur at time 30
-event_3 = env.process(event_3_function())
-#env.run(until=30)
-event_1 = env.process(event_1_function())
 # Start the simulation
 env.run()
 
 
+# 626590 is the first disconnection:
+# so find all nodes that were online befor that
+# and use those to form the initial network
