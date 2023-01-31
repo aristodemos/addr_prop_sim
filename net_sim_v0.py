@@ -27,11 +27,7 @@ G = nx.DiGraph()
 
 NETWORK_SIZE = 6000
 # create network. according to different strategies [random (ER), scale-free (BA), realMG (from Grundmann)
-
-with open('churntrace.pickle', 'rb') as h:
-    churn_trace = pickle.load(h)
-
-# initialize network according to trace file.
+ALL_PEERS = []
 
 
 def getDegreeDistribution(strategy, n, deg_seq_list=None):
@@ -105,7 +101,6 @@ class Peer:
         while True:
             msg = yield self.com_channel.get(lambda msg: msg[0] == self.id)
             #process message now
-
 
 class GoodPeer(Peer):
     def __init__(self, id, env, arrival_rate, departure_rate, message_rate, num_peers, in_pipe, out_pipe):
@@ -477,7 +472,6 @@ class GoodPeer(Peer):
 
         logging.debug(f"Peer_{self.id} CONNECTED TO {self.get_connected()}")
 
-
 class BadPeer(GoodPeer):
     """
     This peer does not relay address messages.
@@ -518,11 +512,25 @@ def modelChurn(env):
     # read from Neudeckers dictionary
     _event = env.process(event_function())
 
+def read_churn_trace(env):
+    start_ts = 626590 # calculated ///end_ts = 1231559 : that's two weeks
+    with open('addr_prop_sim/churntrace.pickle', 'rb') as h:
+        d = pickle.load(h)
+    for node_id in d.keys():
+        new_peer = GoodPeer(id=i, env=env, arrival_rate=2*ONE_HOUR, departure_rate=1*ONE_DAY, message_rate=ONE_DAY,
+                        num_peers=num_neighbors, in_pipe=comm_channel.get_output_conn(), out_pipe=comm_channel)
+        ALL_PEERS.append(new_peer)
+        for timestamp in d[node_id]:
+            if timestamp > start_ts:
+                env.process(event_function(event_type='flip', node_id=node_id, timestamp=timestamp))
+            else:
+                G.add_node(node_id)
 
+
+# create network
 
 deg_seq = getDegreeDistribution('ba-model', NETWORK_SIZE)
 #sample_graph = returnGeneratedGraph('scale-free', NETWORK_SIZE)
-ALL_PEERS = []
 
 # Define the simulation environment
 env = simpy.Environment()
